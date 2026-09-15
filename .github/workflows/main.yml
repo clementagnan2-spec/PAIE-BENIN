@@ -1,0 +1,45 @@
+name: Compiler PaieBenin.exe
+
+# Se déclenche :
+#  - à chaque tag "v*" (ex: v1.0.0) -> compile ET publie une Release GitHub
+#  - manuellement depuis l'onglet "Actions" du dépôt (bouton "Run workflow")
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installer les dépendances
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compiler l'exécutable
+        run: |
+          python -m PyInstaller --noconfirm --onefile --windowed --name "PaieBenin" main.py
+
+      - name: Publier l'exécutable comme artefact du build
+        uses: actions/upload-artifact@v4
+        with:
+          name: PaieBenin-exe
+          path: dist/PaieBenin.exe
+
+      - name: Publier dans une Release GitHub (uniquement pour les tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/PaieBenin.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
