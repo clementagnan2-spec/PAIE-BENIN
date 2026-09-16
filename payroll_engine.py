@@ -13,9 +13,9 @@ Reproduit fidèlement les formules du classeur Excel "ITS_VPS_CNSS_BENIN.xlsx"
       * Assurance Vieillesse — part salariale    : 3,60 % (fixe)
   - ITS (Impôt sur les Traitements et Salaires) : barème PROGRESSIF par
     tranches (0% / 10% / 15% / 19% / 30% / 40%), appliqué au Brut Fiscal.
-    Affiché sur le bulletin dans la colonne "Part Patronale" (comme dans le
-    classeur), mais RETENU SUR LE SALARIÉ (réduit le Net à payer) --
-    confirmé explicitement par le client.
+    100% CHARGE PATRONALE -- n'affecte PAS le Net à payer de l'employé
+    (confirmé explicitement par le client) : affichée en "Part Patronale"
+    sur le bulletin, exactement comme le VPS.
   - VPS (Versement Patronal sur Salaires) : taux PARAMÉTRABLE (4% par
     défaut, 2% pour les établissements d'enseignement privé). 100% à la
     charge de l'employeur, n'affecte jamais le Net à payer.
@@ -145,9 +145,6 @@ def compute_payslip(emp: Employee, params: dict, mois: int = None) -> dict:
     # CNSS Assurance Vieillesse -- part salariale (3,6%)
     P = _round(O * params["taux_cnss_vieillesse_salarial"])
 
-    # ITS -- barème progressif sur le Brut fiscal
-    Q = _round(compute_its(O, params["bareme_its"]))
-
     # TRTV -- uniquement sur le bulletin du mois de prélèvement (avril)
     if mois is None:
         try:
@@ -162,19 +159,23 @@ def compute_payslip(emp: Employee, params: dict, mois: int = None) -> dict:
     T = emp.retenue_pret
     U = emp.autres_retenues
 
-    total_retenues_salariales = P + Q + R + S + T + U
+    total_retenues_salariales = P + R + S + T + U
 
     # Net à payer
     net_a_payer = O - total_retenues_salariales
 
     # --- Charges patronales (n'affectent PAS le Net à payer) --------------
 
+    # ITS -- barème progressif sur le Brut fiscal. 100% charge patronale
+    # (n'est PAS déduite du salaire de l'employé) -- confirmé par le client.
+    Q = _round(compute_its(O, params["bareme_its"]))
+
     AA = _round(O * params["taux_cnss_allocations_familiales"])
     AB = _round(O * params["taux_cnss_risques_pro"])
     AC = _round(O * params["taux_cnss_vieillesse_patronal"])
     AD = _round(O * params["taux_vps"])
 
-    total_charges_patronales = AA + AB + AC + AD
+    total_charges_patronales = AA + AB + AC + AD + Q
     cout_total_employeur = O + total_charges_patronales
 
     # Totaux utiles pour les écritures comptables

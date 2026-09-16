@@ -11,9 +11,14 @@ les deux exemples du classeur.
 
 ## Décisions prises avec le client (à date de création du projet)
 
-1. **ITS retenu sur le salarié** : confirmé explicitement — bien qu'affiché
-   dans la colonne "Part Patronale" du bulletin (fidèle au classeur Excel),
-   le montant réduit le Net à payer de l'employé.
+1. **ITS = charge 100% patronale** (décision finale, après une première
+   clarification erronée où l'ITS avait été implémenté comme retenue
+   salariale — corrigée le jour même sur retour du client, capture d'écran
+   à l'appui : Net à payer attendu = 634 312 F pour un brut de 658 000 F,
+   soit brut − CNSS salariale UNIQUEMENT). L'ITS reste affiché dans la
+   colonne "Part Patronale" du bulletin (fidèle au classeur Excel) et
+   compte dans le coût total employeur et les écritures comptables
+   (comptes 664500 / 447210), mais n'affecte JAMAIS le Net à payer.
 2. **TRTV (4 000 F)** : retenue sur le salarié, mais **une seule fois par
    an, uniquement sur le bulletin du mois d'avril** — pas une retenue
    mensuelle. Le mois de prélèvement est paramétrable (`trtv_mois_prelevement`,

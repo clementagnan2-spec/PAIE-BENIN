@@ -35,7 +35,6 @@ reproduit exactement l'exemple à 658 000 F de brut → 118 900 F d'ITS).
 | Élément | Taux / Montant | Fréquence |
 |---|---|---|
 | CNSS Assurance Vieillesse (part salariale) | 3,6 % (fixe) | Chaque mois |
-| ITS (Impôt sur les Traitements et Salaires) | Barème progressif : 0 % / 10 % / 15 % / 19 % / 30 % / 40 % | Chaque mois |
 | TRTV (Taxe Radiophonique + Télévisuelle) | 4 000 F (1 000 + 3 000) | **Une fois par an, en avril uniquement** (paramétrable) |
 
 Barème ITS (tranches appliquées au Brut fiscal) :
@@ -49,11 +48,6 @@ Barème ITS (tranches appliquées au Brut fiscal) :
 | 500 001 – 1 000 000 | 30 % |
 | > 1 000 000 | 40 % |
 
-**Note importante** : sur le bulletin, l'ITS s'affiche dans la colonne
-"Part Patronale" — fidèle au classeur Excel fourni — mais le montant est
-bien déduit du Net à payer de l'employé (confirmé explicitement par le
-client).
-
 ### Charges patronales (n'affectent pas le Net à payer)
 
 | Élément | Taux | Modifiable dans les Paramètres |
@@ -62,6 +56,12 @@ client).
 | CNSS Risques Professionnels | 1 % à 4 % | **Oui** (taux variable) |
 | CNSS Assurance Vieillesse (part patronale) | 6,40 % (fixe) | Non |
 | VPS (Versement Patronal sur Salaires) | 4 % standard / 2 % enseignement privé | **Oui** (taux variable) |
+| ITS (Impôt sur les Traitements et Salaires) | Barème progressif : 0 % / 10 % / 15 % / 19 % / 30 % / 40 % | Non (barème fixe) |
+
+**Note** : l'ITS est **100 % à la charge de l'employeur** — il n'affecte
+PAS le Net à payer de l'employé (confirmé explicitement par le client).
+Il s'affiche dans la colonne "Part Patronale" du bulletin, exactement
+comme le VPS.
 
 ## Les 6 onglets
 

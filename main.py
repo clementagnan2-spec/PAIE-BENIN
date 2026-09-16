@@ -393,6 +393,20 @@ class EmployeesTab(ttk.Frame):
 
         ttk.Label(right, text="Fiche employé", font=("Segoe UI", 11, "bold")).pack(pady=(4, 10))
 
+        # IMPORTANT : les boutons sont packés AVANT la zone défilante des
+        # champs, et ancrés en bas ("side=bottom"), pour qu'ils restent
+        # TOUJOURS visibles même si la liste de champs est longue -- sinon
+        # le canvas défilant (fill="both", expand=True) engloutit toute la
+        # hauteur restante et les boutons se retrouvent invisibles, hors
+        # de la fenêtre.
+        ttk.Button(right, text="Vider le formulaire", command=self.clear_form).pack(side="bottom", pady=(0, 10))
+        btns = ttk.Frame(right)
+        btns.pack(side="bottom", pady=(6, 4))
+        ttk.Button(btns, text="Ajouter", command=self.add_employee).grid(row=0, column=0, padx=4)
+        ttk.Button(btns, text="Mettre à jour", command=self.update_employee).grid(row=0, column=1, padx=4)
+        ttk.Button(btns, text="Supprimer", command=self.delete_employee).grid(row=0, column=2, padx=4)
+        ttk.Separator(right).pack(side="bottom", fill="x", pady=(4, 4))
+
         canvas = tk.Canvas(right, highlightthickness=0, width=320)
         scrollbar = ttk.Scrollbar(right, orient="vertical", command=canvas.yview)
         form = ttk.Frame(canvas)
@@ -437,13 +451,6 @@ class EmployeesTab(ttk.Frame):
                     var.set("0")
             w.grid(row=i, column=1, pady=2, sticky="w")
             self.form_vars[key] = var
-
-        btns = ttk.Frame(right)
-        btns.pack(pady=14)
-        ttk.Button(btns, text="Ajouter", command=self.add_employee).grid(row=0, column=0, padx=4)
-        ttk.Button(btns, text="Mettre à jour", command=self.update_employee).grid(row=0, column=1, padx=4)
-        ttk.Button(btns, text="Supprimer", command=self.delete_employee).grid(row=0, column=2, padx=4)
-        ttk.Button(right, text="Vider le formulaire", command=self.clear_form).pack()
 
         self.selected_numero = None
         self.selected_date_saisie = None
@@ -886,7 +893,7 @@ class PayrollTab(ttk.Frame):
                         "its", "trtv", "total_retenues_salariales", "net_a_payer",
                         "cout_total_employeur"]
         headers = ["N°", "Nom & Prénoms", "Total Brut", "CNSS (3,6%)",
-                   "ITS", "TRTV", "Total Retenues", "Net à payer", "Coût Employeur"]
+                   "ITS (charge patr.)", "TRTV", "Total Retenues", "Net à payer", "Coût Employeur"]
 
         self.result_cols = result_cols
         tree_frame = ttk.Frame(self)
@@ -1207,7 +1214,6 @@ class PayrollTab(ttk.Frame):
         c.drawString(x_left, y, "RETENUES")
         y -= 6 * mm
         y = row("CNSS Assurance Vieillesse (part salariale, 3,6%)", r["cnss_vieillesse_salariale"], y)
-        y = row("ITS (Impôt sur Traitements et Salaires)", r["its"], y)
         if r.get("trtv_preleve_ce_mois") and r["trtv"]:
             y = row("TRTV (Taxe Radio + Télé, annuelle)", r["trtv"], y)
         if r["avance_acompte"]:
@@ -1237,6 +1243,7 @@ class PayrollTab(ttk.Frame):
             ("Risques Professionnels", r["cnss_risques_pro"]),
             ("Assurance Vieillesse (part patronale, 6,40%)", r["cnss_vieillesse_patronale"]),
             ("Versement Patronal sur Salaires (VPS)", r["vps"]),
+            ("ITS (Impôt sur Traitements et Salaires)", r["its"]),
         ]
         for label, value in patronal_lines:
             c.setFont("Helvetica", 8.5)
@@ -1355,25 +1362,24 @@ class AccountingTab(ttk.Frame):
         total_net = s("net_a_payer")
         total_divers = s("avance_acompte") + s("retenue_pret") + s("autres_retenues")
         total_cnss_sal = s("cnss_vieillesse_salariale")
-        total_its = s("its")
         total_trtv = s("trtv")
 
         rows.append(("422000", "SALAIRES NETS À PAYER", 0, total_net))
         rows.append(("421000", "AVANCES / PRÊTS / AUTRES RETENUES AU PERSONNEL", 0, total_divers))
         rows.append(("431300", "CNSS ASSURANCE VIEILLESSE — PART SALARIALE", 0, total_cnss_sal))
-        rows.append(("447210", "ITS RETENU À LA SOURCE", 0, total_its))
         if total_trtv:
             rows.append(("447250", "TRTV (TAXE RADIO + TÉLÉ) À REVERSER", 0, total_trtv))
 
         sous_total_1_debit = sum_sal_base + sum_primes + sum_hs + sum_transport + sum_log + sum_comm
-        sous_total_1_credit = total_net + total_divers + total_cnss_sal + total_its + total_trtv
+        sous_total_1_credit = total_net + total_divers + total_cnss_sal + total_trtv
         rows.append(("", "SOUS-TOTAL 1 (charges de personnel)", sous_total_1_debit, sous_total_1_credit))
 
-        # --- Charges patronales
+        # --- Charges patronales (dont l'ITS, 100% à la charge de l'employeur)
         total_allocs_fam = s("cnss_allocations_familiales")
         total_risques_pro = s("cnss_risques_pro")
         total_cnss_pat = s("cnss_vieillesse_patronale")
         total_vps = s("vps")
+        total_its = s("its")
 
         rows.append(("664100", "CHARGES SOCIALES — CNSS PATRONALE (ALLOC. FAM. + RISQUES PRO + VIEILLESSE)",
                       total_allocs_fam + total_risques_pro + total_cnss_pat, 0))
@@ -1381,8 +1387,10 @@ class AccountingTab(ttk.Frame):
                       total_allocs_fam + total_risques_pro + total_cnss_pat))
         rows.append(("664400", "VERSEMENT PATRONAL SUR SALAIRES (VPS)", total_vps, 0))
         rows.append(("447230", "VPS À REVERSER", 0, total_vps))
+        rows.append(("664500", "ITS (CHARGE PATRONALE)", total_its, 0))
+        rows.append(("447210", "ITS À REVERSER", 0, total_its))
 
-        sous_total_2 = total_allocs_fam + total_risques_pro + total_cnss_pat + total_vps
+        sous_total_2 = total_allocs_fam + total_risques_pro + total_cnss_pat + total_vps + total_its
         rows.append(("", "SOUS-TOTAL 2 (charges patronales)", sous_total_2, sous_total_2))
 
         grand_total_debit = sous_total_1_debit + sous_total_2
@@ -1603,7 +1611,6 @@ class SimulatorTab(ttk.Frame):
             f"Total Brut                 {money(r['total_brut'])}",
             "",
             f"CNSS Vieillesse (3,6%)      {money(r['cnss_vieillesse_salariale'])}",
-            f"ITS                         {money(r['its'])}",
         ]
         if r["trtv_preleve_ce_mois"] and r["trtv"]:
             lines.append(f"TRTV (annuelle, mois d'avril) {money(r['trtv'])}")
@@ -1612,6 +1619,7 @@ class SimulatorTab(ttk.Frame):
             "─────────────────────────────────────────────",
             f"NET À PAYER                 {money(r['net_a_payer'])}",
             "",
+            f"ITS (charge patronale)      {money(r['its'])}",
             f"Coût total employeur        {money(r['cout_total_employeur'])}",
         ]
 
