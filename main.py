@@ -936,6 +936,8 @@ class PayrollTab(ttk.Frame):
         ttk.Button(top, text="Exporter vers Excel", command=self.export_excel).pack(side="left", padx=(0, 6))
         ttk.Button(top, text="Bordereau des salaires (Excel)",
                    command=self.export_bordereau).pack(side="left", padx=(0, 6))
+        ttk.Button(top, text="Bordereau des salaires (PDF)",
+                   command=self.export_bordereau_pdf).pack(side="left", padx=(0, 6))
         ttk.Button(top, text="Bulletin PDF (sélection)", command=self.export_selected_payslip).pack(side="left", padx=(0, 6))
         ttk.Button(top, text="Tous les bulletins (PDF)", command=self.export_all_payslips).pack(side="left")
 
@@ -1076,6 +1078,61 @@ class PayrollTab(ttk.Frame):
         wb.save(path)
         messagebox.showinfo("Export réussi", f"Fichier exporté :\n{path}")
 
+    def _bordereau_rows_and_totals(self):
+        """Calcule les lignes du Bordereau des salaires (une par employé) +
+        les totaux, factorisé pour être utilisé à l'identique par l'export
+        Excel et l'export PDF."""
+        entete = self.app.config_data.get("bulletin_entete", {}) or {}
+        ifu_entreprise = entete.get("ifu", "")
+        entreprise_nom = entete.get("nom_entreprise") or self.app.config_data.get("entreprise", "")
+        params = self.app.config_data["params"]
+        taux_patronal_total = (params["taux_cnss_allocations_familiales"]
+                                + params["taux_cnss_risques_pro"]
+                                + params["taux_cnss_vieillesse_patronal"])
+
+        def split_nom_prenoms(full):
+            full = (full or "").strip()
+            if " " in full:
+                nom, prenoms = full.split(" ", 1)
+            else:
+                nom, prenoms = full, ""
+            return nom, prenoms
+
+        rows = []
+        for r in self.last_results:
+            nom, prenoms = split_nom_prenoms(r["nom_prenoms"])
+            total_primes = (r["heures_sup"] + r["primes"] + r["indemnite_transport"]
+                             + r["indemnite_logement"] + r["indemnite_communication"])
+            autres_gratifications = r["gratification"] + r["autres_primes"]
+            # Arrondi une seule fois sur la somme des 3 taux CNSS patronaux
+            # (plutôt que d'additionner 3 montants déjà arrondis séparément)
+            # pour éviter un écart de +/- 1 F par rapport au bordereau de référence.
+            cnss_patronale = round(r["total_brut"] * taux_patronal_total)
+            cnss_ouvriere = r["cnss_vieillesse_salariale"]
+            # TOTAL EMPLOYEUR = Salaire BRUT (et non Net) + charges patronales,
+            # car le Brut inclut déjà la Part Ouvrière avant sa retenue -- le
+            # coût réel pour l'employeur part du Brut, pas du Net (confirmé
+            # par le client : 93 361 + 18 112 + 3 734 + 3 336 = 118 543).
+            total_employeur_bordereau = r["total_brut"] + cnss_patronale + r["vps"] + r["its"]
+
+            rows.append({
+                "numero": r["numero"], "ifu": ifu_entreprise, "nom": nom, "prenoms": prenoms,
+                "matricule_cnss": r.get("matricule_cnss", ""), "date_naissance": r.get("date_naissance", ""),
+                "date_embauche": r.get("date_embauche", ""), "contacts": r.get("contacts", ""),
+                "emploi": r.get("emploi", ""), "salaire_base": r["salaire_base"],
+                "total_primes": total_primes, "autres_gratifications": autres_gratifications,
+                "total_brut": r["total_brut"], "cnss_patronale": cnss_patronale,
+                "cnss_ouvriere": cnss_ouvriere, "vps": r["vps"], "its": r["its"],
+                "net_a_payer": r["net_a_payer"], "total_employeur": total_employeur_bordereau,
+            })
+
+        numeric_keys = ["salaire_base", "total_primes", "autres_gratifications", "total_brut",
+                         "cnss_patronale", "cnss_ouvriere", "vps", "its", "net_a_payer", "total_employeur"]
+        totals = {k: sum(row[k] for row in rows) for k in numeric_keys}
+        charges_totales_mois = totals["total_brut"] + totals["cnss_patronale"] + totals["vps"] + totals["its"]
+
+        return ifu_entreprise, entreprise_nom, rows, totals, charges_totales_mois
+
     def export_bordereau(self):
         """Génère le « Bordereau des salaires » au format agence (une ligne
         par employé + colonnes IFU/CNSS/dates + détail CNSS patronale-ouvrière
@@ -1103,17 +1160,7 @@ class PayrollTab(ttk.Frame):
         if not path:
             return
 
-        entete = self.app.config_data.get("bulletin_entete", {}) or {}
-        ifu_entreprise = entete.get("ifu", "")
-        entreprise_nom = entete.get("nom_entreprise") or self.app.config_data.get("entreprise", "")
-
-        def split_nom_prenoms(full):
-            full = (full or "").strip()
-            if " " in full:
-                nom, prenoms = full.split(" ", 1)
-            else:
-                nom, prenoms = full, ""
-            return nom, prenoms
+        ifu_entreprise, entreprise_nom, bordereau_rows, _totals, _charges = self._bordereau_rows_and_totals()
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -1180,29 +1227,13 @@ class PayrollTab(ttk.Frame):
         # --- Lignes employés -----------------------------------------------
         row_idx = r2 + 1
         first_data_row = row_idx
-        total_row_values = None
 
-        for r in self.last_results:
-            nom, prenoms = split_nom_prenoms(r["nom_prenoms"])
-            total_primes = (r["heures_sup"] + r["primes"] + r["indemnite_transport"]
-                             + r["indemnite_logement"] + r["indemnite_communication"])
-            autres_gratifications = r["gratification"] + r["autres_primes"]
-            # Arrondi une seule fois sur la somme des 3 taux CNSS patronaux
-            # (plutôt que d'additionner 3 montants déjà arrondis séparément)
-            # pour éviter un écart de +/- 1 F par rapport au bordereau de référence.
-            params = self.app.config_data["params"]
-            taux_patronal_total = (params["taux_cnss_allocations_familiales"]
-                                    + params["taux_cnss_risques_pro"]
-                                    + params["taux_cnss_vieillesse_patronal"])
-            cnss_patronale = round(r["total_brut"] * taux_patronal_total)
-            cnss_ouvriere = r["cnss_vieillesse_salariale"]
-            total_employeur_bordereau = r["net_a_payer"] + cnss_patronale + r["vps"] + r["its"]
-
-            values = [r["numero"], ifu_entreprise, nom, prenoms, r.get("matricule_cnss", ""),
-                      r.get("date_naissance", ""), r.get("date_embauche", ""), r.get("contacts", ""),
-                      r.get("emploi", ""), r["salaire_base"], total_primes, autres_gratifications,
-                      r["total_brut"], cnss_patronale, cnss_ouvriere, r["vps"], r["its"],
-                      r["net_a_payer"], total_employeur_bordereau]
+        for br in bordereau_rows:
+            values = [br["numero"], br["ifu"], br["nom"], br["prenoms"], br["matricule_cnss"],
+                      br["date_naissance"], br["date_embauche"], br["contacts"], br["emploi"],
+                      br["salaire_base"], br["total_primes"], br["autres_gratifications"],
+                      br["total_brut"], br["cnss_patronale"], br["cnss_ouvriere"], br["vps"], br["its"],
+                      br["net_a_payer"], br["total_employeur"]]
             for i, v in enumerate(values, start=1):
                 cell = ws.cell(row=row_idx, column=i, value=v)
                 cell.border = border
@@ -1252,6 +1283,144 @@ class PayrollTab(ttk.Frame):
 
         wb.save(path)
         messagebox.showinfo("Export réussi", f"Bordereau des salaires généré :\n{path}")
+
+    def export_bordereau_pdf(self):
+        """Génère le Bordereau des salaires en PDF (format paysage, A3 --
+        plus lisible qu'A4 vu le nombre de colonnes), avec les mêmes chiffres
+        que la version Excel."""
+        if not self.last_results:
+            self.calculate()
+        if not self.last_results:
+            return
+        try:
+            from reportlab.lib.pagesizes import A3, landscape
+            from reportlab.lib.units import mm
+            from reportlab.lib import colors
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.styles import ParagraphStyle
+            from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+        except ImportError:
+            messagebox.showerror("Module manquant",
+                                  "Le module 'reportlab' n'est pas installé.\n"
+                                  "Installez-le avec : pip install reportlab")
+            return
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF", "*.pdf")],
+            initialfile=f"Bordereau_des_salaires_{self.mois_var.get()}_{self.annee_var.get()}.pdf",
+        )
+        if not path:
+            return
+
+        entreprise_nom_display, bordereau_rows, totals, charges_totales_mois = (
+            self._bordereau_rows_and_totals()[1:])
+
+        def money(v):
+            if v in (None, ""):
+                return ""
+            return f"{v:,.0f}".replace(",", " ")
+
+        header_style = ParagraphStyle("hdr", fontName="Helvetica-Bold", fontSize=6.5,
+                                       leading=7.5, alignment=TA_CENTER, textColor=colors.white)
+        cell_style = ParagraphStyle("cell", fontName="Helvetica", fontSize=6.5,
+                                     leading=7.5, alignment=TA_LEFT)
+        cell_center_style = ParagraphStyle("cellc", fontName="Helvetica", fontSize=6.5,
+                                            leading=7.5, alignment=TA_CENTER)
+
+        def H(text):
+            return Paragraph(text.replace("\n", "<br/>"), header_style)
+
+        def C(text, center=False):
+            return Paragraph(str(text) if text not in (None, "") else "", cell_center_style if center else cell_style)
+
+        # --- En-tête (2 lignes avec cellules groupées, via SPAN) ------------
+        header_row1 = [H("N°"), H("IFU"), H("NOM"), H("PRÉNOMS"), H("N° CNSS"),
+                        H("DATE DE\nNAISSANCE"), H("DATE\nD'EMBAUCHE"), H("CONTACTS"), H("FONCTION"),
+                        H("SALAIRE DE\nBASE"), H("TOTAL\nPRIMES"), H("AUTRES\nGRATIF."), H("SALAIRE\nBRUT"),
+                        H("COTISATIONS CNSS"), "", H("RETENUES FISCALES"), "", H("SALAIRE\nNET"), H("TOTAL\nEMPLOYEUR")]
+        header_row2 = [""] * 13 + [H("PART\nPATRONALE"), H("PART\nOUVRIÈRE"), H("VPS"), H("ITS"), "", ""]
+
+        data = [header_row1, header_row2]
+        for br in bordereau_rows:
+            data.append([
+                C(br["numero"], center=True), C(br["ifu"]), C(br["nom"]), C(br["prenoms"]),
+                C(br["matricule_cnss"]), C(br["date_naissance"], center=True),
+                C(br["date_embauche"], center=True), C(br["contacts"]), C(br["emploi"]),
+                C(money(br["salaire_base"]), center=True), C(money(br["total_primes"]), center=True),
+                C(money(br["autres_gratifications"]), center=True), C(money(br["total_brut"]), center=True),
+                C(money(br["cnss_patronale"]), center=True), C(money(br["cnss_ouvriere"]), center=True),
+                C(money(br["vps"]), center=True), C(money(br["its"]), center=True),
+                C(money(br["net_a_payer"]), center=True), C(money(br["total_employeur"]), center=True),
+            ])
+
+        total_row_idx = len(data)
+        data.append([
+            "", "", "", "", "", "", "", "", C("TOTAL", center=True),
+            C(money(totals["salaire_base"]), center=True), C(money(totals["total_primes"]), center=True),
+            C(money(totals["autres_gratifications"]), center=True), C(money(totals["total_brut"]), center=True),
+            C(money(totals["cnss_patronale"]), center=True), C(money(totals["cnss_ouvriere"]), center=True),
+            C(money(totals["vps"]), center=True), C(money(totals["its"]), center=True),
+            C(money(totals["net_a_payer"]), center=True), C(money(totals["total_employeur"]), center=True),
+        ])
+
+        # --- Largeurs de colonnes (mm), calibrées pour tenir sur une A3 paysage
+        col_widths_mm = [8, 30, 26, 28, 24, 18, 18, 20, 24, 18, 16, 18, 18, 16, 16, 14, 14, 18, 20]
+        col_widths = [w * mm for w in col_widths_mm]
+
+        table = Table(data, colWidths=col_widths, repeatRows=2)
+        style = [
+            ("SPAN", (0, 0), (0, 1)), ("SPAN", (1, 0), (1, 1)), ("SPAN", (2, 0), (2, 1)),
+            ("SPAN", (3, 0), (3, 1)), ("SPAN", (4, 0), (4, 1)), ("SPAN", (5, 0), (5, 1)),
+            ("SPAN", (6, 0), (6, 1)), ("SPAN", (7, 0), (7, 1)), ("SPAN", (8, 0), (8, 1)),
+            ("SPAN", (9, 0), (9, 1)), ("SPAN", (10, 0), (10, 1)), ("SPAN", (11, 0), (11, 1)),
+            ("SPAN", (12, 0), (12, 1)), ("SPAN", (13, 0), (14, 0)), ("SPAN", (15, 0), (16, 0)),
+            ("SPAN", (17, 0), (17, 1)), ("SPAN", (18, 0), (18, 1)),
+            ("BACKGROUND", (0, 0), (-1, 1), colors.HexColor("#008751")),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#AAAAAA")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BACKGROUND", (0, total_row_idx), (-1, total_row_idx), colors.HexColor("#EEF2F7")),
+            ("LINEABOVE", (0, total_row_idx), (-1, total_row_idx), 1, colors.black),
+        ]
+        table.setStyle(TableStyle(style))
+
+        entete = self.app.config_data.get("bulletin_entete", {}) or {}
+        title_style = ParagraphStyle("title", fontName="Helvetica-Bold", fontSize=13, alignment=TA_LEFT)
+        subtitle_style = ParagraphStyle("subtitle", fontName="Helvetica", fontSize=9, alignment=TA_LEFT,
+                                         textColor=colors.HexColor("#555555"))
+        charges_style = ParagraphStyle("charges", fontName="Helvetica-Bold", fontSize=10, alignment=TA_LEFT,
+                                        spaceBefore=8)
+        note_style = ParagraphStyle("note", fontName="Helvetica-Oblique", fontSize=7.5, alignment=TA_LEFT,
+                                     textColor=colors.HexColor("#666666"))
+        footer_style = ParagraphStyle("footer", fontName="Helvetica-Oblique", fontSize=8, alignment=TA_LEFT,
+                                       textColor=colors.HexColor("#008751"), spaceBefore=14)
+
+        title_txt = "DÉTAILS DES SALAIRES DES AGENTS"
+        if entreprise_nom_display:
+            title_txt += f" — {entreprise_nom_display.upper()}"
+        title_txt += f" — {self._period_display().upper()}"
+        subtitle_parts = []
+        if entete.get("ifu"):
+            subtitle_parts.append(f"IFU : {entete['ifu']}")
+        if entete.get("adresse"):
+            subtitle_parts.append(entete["adresse"])
+
+        doc = SimpleDocTemplate(path, pagesize=landscape(A3),
+                                 leftMargin=10 * mm, rightMargin=10 * mm,
+                                 topMargin=10 * mm, bottomMargin=10 * mm)
+        elements = [Paragraph(title_txt, title_style)]
+        if subtitle_parts:
+            elements.append(Paragraph("  •  ".join(subtitle_parts), subtitle_style))
+        elements.append(Spacer(1, 6 * mm))
+        elements.append(table)
+        elements.append(Paragraph(
+            f"CHARGES TOTALES / MOIS : {money(charges_totales_mois)} FCFA", charges_style))
+        elements.append(Paragraph(
+            "(= Total Salaire Brut + Cotisations CNSS patronale + VPS + ITS)", note_style))
+        elements.append(Paragraph(PAID_SOFTWARE_NOTICE, footer_style))
+
+        doc.build(elements)
+        messagebox.showinfo("Export réussi", f"Bordereau des salaires (PDF) généré :\n{path}")
 
     def _period_display(self):
         return f"{self.mois_var.get()} {self.annee_var.get()}"
