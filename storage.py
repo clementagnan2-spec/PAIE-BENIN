@@ -23,13 +23,14 @@ DATA_FILE_NAME = "donnees.json"
 
 # Identité de l'entreprise pré-remplie à l'installation (modifiable ensuite
 # dans l'onglet « Paramètres de paie » par l'administrateur).
-ENTREPRISE_NOM = "EGO BENIN SARL"
+ENTREPRISE_NOM = "EGO BENIN"
 ENTREPRISE_IFU = "3202632850060"
-ENTREPRISE_ADRESSE = "BP 04 Cotonou"
+ENTREPRISE_ADRESSE = "Cotonou, Bénin"
 
 # Anciennes valeurs par défaut : si le fichier de données contient encore
 # l'une d'elles (ou rien du tout), on la remplace par l'identité ci-dessus.
-_PLACEHOLDERS = ("", "Mon Entreprise")
+_PLACEHOLDERS = ("", "Mon Entreprise", "EGO BENIN SARL")
+_PLACEHOLDERS_ADRESSE = ("", "BP 04 Cotonou")
 
 
 def get_data_dir() -> str:
@@ -123,7 +124,7 @@ def _prefill_entreprise(cfg: dict) -> None:
     if not str(entete.get("ifu", "")).strip():
         entete["ifu"] = ENTREPRISE_IFU
         changed = True
-    if not str(entete.get("adresse", "")).strip():
+    if str(entete.get("adresse", "")).strip() in _PLACEHOLDERS_ADRESSE:
         entete["adresse"] = ENTREPRISE_ADRESSE
         changed = True
     if changed:
