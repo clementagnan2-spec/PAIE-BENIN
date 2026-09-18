@@ -21,6 +21,16 @@ import auth
 APP_DIR_NAME = "PaieBeninData"
 DATA_FILE_NAME = "donnees.json"
 
+# Identité de l'entreprise pré-remplie à l'installation (modifiable ensuite
+# dans l'onglet « Paramètres de paie » par l'administrateur).
+ENTREPRISE_NOM = "EGO BENIN SARL"
+ENTREPRISE_IFU = "3202632850060"
+ENTREPRISE_ADRESSE = "BP 04 Cotonou"
+
+# Anciennes valeurs par défaut : si le fichier de données contient encore
+# l'une d'elles (ou rien du tout), on la remplace par l'identité ci-dessus.
+_PLACEHOLDERS = ("", "Mon Entreprise")
+
 
 def get_data_dir() -> str:
     home = os.path.expanduser("~")
@@ -35,13 +45,13 @@ def get_data_path() -> str:
 
 def _default_config() -> dict:
     return {
-        "entreprise": "Mon Entreprise",
+        "entreprise": ENTREPRISE_NOM,
         # En-tête / pied de page utilisés sur les bulletins de paie PDF,
         # modifiables par l'administrateur dans l'onglet Paramètres.
         "bulletin_entete": {
-            "nom_entreprise": "Mon Entreprise",
-            "ifu": "",
-            "adresse": "",
+            "nom_entreprise": ENTREPRISE_NOM,
+            "ifu": ENTREPRISE_IFU,
+            "adresse": ENTREPRISE_ADRESSE,
             "telephone": "",
             "email": "",
             "note_entete": "",
@@ -93,7 +103,35 @@ def load() -> dict:
         cfg["params"].setdefault(k, v)
     for k, v in default["bulletin_entete"].items():
         cfg["bulletin_entete"].setdefault(k, v)
+    _prefill_entreprise(cfg)
     return cfg
+
+
+def _prefill_entreprise(cfg: dict) -> None:
+    """Pré-remplit le nom, l'IFU et l'adresse de l'entreprise sur les
+    installations existantes où ces champs sont encore vides (ou contiennent
+    l'ancien texte d'exemple « Mon Entreprise »). Une valeur déjà saisie par
+    l'utilisateur n'est jamais écrasée."""
+    entete = cfg["bulletin_entete"]
+    changed = False
+    if str(cfg.get("entreprise", "")).strip() in _PLACEHOLDERS:
+        cfg["entreprise"] = ENTREPRISE_NOM
+        changed = True
+    if str(entete.get("nom_entreprise", "")).strip() in _PLACEHOLDERS:
+        entete["nom_entreprise"] = ENTREPRISE_NOM
+        changed = True
+    if not str(entete.get("ifu", "")).strip():
+        entete["ifu"] = ENTREPRISE_IFU
+        changed = True
+    if not str(entete.get("adresse", "")).strip():
+        entete["adresse"] = ENTREPRISE_ADRESSE
+        changed = True
+    if changed:
+        try:
+            save(cfg)
+        except Exception:
+            # pas bloquant : les valeurs sont déjà correctes en mémoire
+            pass
 
 
 def save(config: dict) -> None:

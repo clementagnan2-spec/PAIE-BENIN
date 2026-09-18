@@ -373,6 +373,16 @@ class EmployeesTab(ttk.Frame):
         ttk.Button(toolbar, text="Télécharger le modèle Excel",
                    command=self.download_template).pack(side="left", padx=4)
 
+        # --- Reconduction : recopie en un clic toutes les saisies d'un mois
+        # sur le mois suivant, pour ne pas ressaisir les mêmes employés
+        # chaque mois.
+        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=10)
+        ttk.Label(toolbar, text="Mois à reconduire :").pack(side="left")
+        self.reconduire_var = tk.StringVar(value=self._periode_to_input(current_period_key()))
+        ttk.Entry(toolbar, textvariable=self.reconduire_var, width=9).pack(side="left", padx=(4, 4))
+        ttk.Button(toolbar, text="Reconduire au mois suivant",
+                   command=self.reconduire_mois_suivant).pack(side="left", padx=4)
+
         # IMPORTANT : on réserve d'abord la place du panneau de droite (largeur
         # fixe) AVANT de placer le tableau (qui a beaucoup de colonnes et
         # utilise fill="both", expand=True). Si on faisait l'inverse, le
@@ -644,6 +654,103 @@ class EmployeesTab(ttk.Frame):
                     var.set(str(val))
             else:
                 var.set(str(emp.get(key, "")))
+
+    # ------------------------------------------------------------------
+    # RECONDUCTION D'UN MOIS SUR LE SUIVANT
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _next_period_key(period_key):
+        """'2026-09' -> '2026-10' (et décembre bascule sur janvier suivant)."""
+        year, month = (int(x) for x in period_key.split("-"))
+        if month == 12:
+            year, month = year + 1, 1
+        else:
+            month += 1
+        return f"{year:04d}-{month:02d}"
+
+    def reconduire_mois_suivant(self):
+        """Recopie toutes les saisies du mois indiqué sur le mois suivant :
+        mêmes employés, mêmes salaires et indemnités, sans ressaisie. Les
+        employés déjà saisis sur le mois suivant sont ignorés (pas de
+        doublon), et les éléments variables (heures supplémentaires, avances,
+        retenues) peuvent être remis à zéro."""
+        source = normalize_period(self.reconduire_var.get())
+        cible = self._next_period_key(source)
+
+        employees = self.get_employees()
+        a_reconduire = [e for e in employees if e.get("periode", "") == source]
+        if not a_reconduire:
+            messagebox.showinfo(
+                "Aucune saisie",
+                f"Aucun employé n'est saisi pour {format_period(source)}.\n\n"
+                "Vérifiez le mois indiqué (format MM/AAAA) avant de reconduire.")
+            return
+
+        # Clé d'identification d'un employé, pour ne pas le recopier deux fois
+        # sur le mois cible : le matricule CNSS s'il existe, sinon le nom.
+        def cle(e):
+            mat = str(e.get("matricule_cnss", "")).strip().lower()
+            return mat or str(e.get("nom_prenoms", "")).strip().lower()
+
+        deja = {cle(e) for e in employees if e.get("periode", "") == cible}
+        nouveaux = [e for e in a_reconduire if cle(e) not in deja]
+        ignores = len(a_reconduire) - len(nouveaux)
+
+        if not nouveaux:
+            messagebox.showinfo(
+                "Déjà reconduit",
+                f"Tous les employés de {format_period(source)} sont déjà "
+                f"saisis sur {format_period(cible)}. Rien à faire.")
+            return
+
+        remise_a_zero = messagebox.askyesnocancel(
+            "Reconduire les salaires",
+            f"Reconduire {len(nouveaux)} employé(s) de {format_period(source)} "
+            f"vers {format_period(cible)} ?"
+            + (f"\n({ignores} déjà présent(s) sur {format_period(cible)} : ignoré(s).)"
+               if ignores else "")
+            + "\n\nOui  = remettre à zéro les éléments variables du mois "
+              "(heures supplémentaires, avances/acomptes, retenues sur prêts, "
+              "autres retenues) — recommandé.\n"
+              "Non  = tout recopier à l'identique.\n"
+              "Annuler = ne rien faire.")
+        if remise_a_zero is None:
+            return
+
+        variables = ("heures_sup", "avance_acompte", "retenue_pret", "autres_retenues")
+        aujourdhui = datetime.date.today().isoformat()
+        ajoutes = []
+        numero_depart = self.app.config_data["next_numero"]
+        for e in nouveaux:
+            copie = dict(e)
+            copie["periode"] = cible
+            copie["numero"] = self.app.config_data["next_numero"]
+            copie["date_saisie"] = aujourdhui
+            if remise_a_zero:
+                for k in variables:
+                    copie[k] = 0
+            employees.append(copie)
+            ajoutes.append(copie)
+            self.app.config_data["next_numero"] += 1
+
+        if not self._save_or_report():
+            # annulation en mémoire si l'enregistrement a échoué, pour ne pas
+            # désynchroniser l'affichage et le fichier de données
+            for copie in ajoutes:
+                employees.remove(copie)
+            self.app.config_data["next_numero"] = numero_depart
+            return
+
+        self.refresh_tree()
+        messagebox.showinfo(
+            "Reconduction effectuée",
+            f"{len(ajoutes)} employé(s) reconduit(s) de {format_period(source)} "
+            f"vers {format_period(cible)}."
+            + (f"\n{ignores} employé(s) déjà présent(s) sur {format_period(cible)} "
+               "n'ont pas été recopiés." if ignores else "")
+            + "\n\nVous pouvez maintenant ajuster les montants du nouveau mois "
+              "en sélectionnant chaque ligne dans la liste.")
+        self.reconduire_var.set(self._periode_to_input(cible))
 
     @staticmethod
     def _periode_to_input(period_key):
@@ -934,8 +1041,6 @@ class PayrollTab(ttk.Frame):
 
         ttk.Button(top, text="Calculer la paie", command=self.calculate).pack(side="left", padx=16)
         ttk.Button(top, text="Exporter vers Excel", command=self.export_excel).pack(side="left", padx=(0, 6))
-        ttk.Button(top, text="Bordereau des salaires (Excel)",
-                   command=self.export_bordereau).pack(side="left", padx=(0, 6))
         ttk.Button(top, text="Bordereau des salaires (PDF)",
                    command=self.export_bordereau_pdf).pack(side="left", padx=(0, 6))
         ttk.Button(top, text="Bulletin PDF (sélection)", command=self.export_selected_payslip).pack(side="left", padx=(0, 6))
@@ -1133,161 +1238,11 @@ class PayrollTab(ttk.Frame):
 
         return ifu_entreprise, entreprise_nom, rows, totals, charges_totales_mois
 
-    def export_bordereau(self):
-        """Génère le « Bordereau des salaires » au format agence (une ligne
-        par employé + colonnes IFU/CNSS/dates + détail CNSS patronale-ouvrière
-        + VPS + ITS + Net + Total employeur), conforme au modèle fourni par
-        le client, avec ligne TOTAL et récapitulatif des charges du mois."""
-        if not self.last_results:
-            self.calculate()
-        if not self.last_results:
-            return
-        try:
-            import openpyxl
-            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-            from openpyxl.utils import get_column_letter
-        except ImportError:
-            messagebox.showerror("Module manquant",
-                                  "Le module 'openpyxl' n'est pas installé.\n"
-                                  "Installez-le avec : pip install openpyxl")
-            return
-
-        path = filedialog.asksaveasfilename(
-            defaultextension=".xlsx",
-            filetypes=[("Classeur Excel", "*.xlsx")],
-            initialfile=f"Bordereau_des_salaires_{self.mois_var.get()}_{self.annee_var.get()}.xlsx",
-        )
-        if not path:
-            return
-
-        ifu_entreprise, entreprise_nom, bordereau_rows, _totals, _charges = self._bordereau_rows_and_totals()
-
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Bordereau des salaires"
-
-        header_fill = PatternFill("solid", fgColor="008751")
-        header_font = Font(bold=True, color="FFFFFF", size=9)
-        title_font = Font(bold=True, size=13)
-        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        thin = Side(style="thin", color="AAAAAA")
-        border = Border(left=thin, right=thin, top=thin, bottom=thin)
-
-        n_cols = 19
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
-        title_txt = f"DÉTAILS DES SALAIRES DES AGENTS"
-        if entreprise_nom:
-            title_txt += f" — {entreprise_nom.upper()}"
-        title_txt += f" — {self._period_display().upper()}"
-        ws.cell(row=1, column=1, value=title_txt).font = title_font
-
-        # --- En-têtes (2 lignes, avec cellules fusionnées pour les groupes) --
-        r1, r2 = 3, 4
-        simple_headers = ["N°", "IFU", "NOM", "PRÉNOMS", "N° CNSS", "DATE DE\nNAISSANCE",
-                           "DATE\nD'EMBAUCHE", "CONTACTS", "FONCTION", "SALAIRE DE\nBASE",
-                           "TOTAL\nPRIMES", "AUTRES\nGRATIFICATIONS", "SALAIRE\nBRUT"]
-        for i, h in enumerate(simple_headers, start=1):
-            ws.merge_cells(start_row=r1, start_column=i, end_row=r2, end_column=i)
-            cell = ws.cell(row=r1, column=i, value=h)
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = center
-            cell.border = border
-
-        col = len(simple_headers) + 1  # 14
-        ws.merge_cells(start_row=r1, start_column=col, end_row=r1, end_column=col + 1)
-        c = ws.cell(row=r1, column=col, value="COTISATIONS CNSS")
-        c.font = header_font; c.fill = header_fill; c.alignment = center; c.border = border
-        ws.cell(row=r2, column=col, value="PART\nPATRONALE").font = header_font
-        ws.cell(row=r2, column=col + 1, value="PART\nOUVRIÈRE").font = header_font
-        for cc in (col, col + 1):
-            ws.cell(row=r2, column=cc).fill = header_fill
-            ws.cell(row=r2, column=cc).alignment = center
-            ws.cell(row=r2, column=cc).border = border
-        col += 2  # 16
-
-        ws.merge_cells(start_row=r1, start_column=col, end_row=r1, end_column=col + 1)
-        c = ws.cell(row=r1, column=col, value="RETENUES FISCALES")
-        c.font = header_font; c.fill = header_fill; c.alignment = center; c.border = border
-        ws.cell(row=r2, column=col, value="VPS").font = header_font
-        ws.cell(row=r2, column=col + 1, value="ITS").font = header_font
-        for cc in (col, col + 1):
-            ws.cell(row=r2, column=cc).fill = header_fill
-            ws.cell(row=r2, column=cc).alignment = center
-            ws.cell(row=r2, column=cc).border = border
-        col += 2  # 18
-
-        for label in ("SALAIRE NET", "TOTAL EMPLOYEUR"):
-            ws.merge_cells(start_row=r1, start_column=col, end_row=r2, end_column=col)
-            cell = ws.cell(row=r1, column=col, value=label)
-            cell.font = header_font; cell.fill = header_fill; cell.alignment = center; cell.border = border
-            col += 1
-        n_cols = col - 1
-
-        # --- Lignes employés -----------------------------------------------
-        row_idx = r2 + 1
-        first_data_row = row_idx
-
-        for br in bordereau_rows:
-            values = [br["numero"], br["ifu"], br["nom"], br["prenoms"], br["matricule_cnss"],
-                      br["date_naissance"], br["date_embauche"], br["contacts"], br["emploi"],
-                      br["salaire_base"], br["total_primes"], br["autres_gratifications"],
-                      br["total_brut"], br["cnss_patronale"], br["cnss_ouvriere"], br["vps"], br["its"],
-                      br["net_a_payer"], br["total_employeur"]]
-            for i, v in enumerate(values, start=1):
-                cell = ws.cell(row=row_idx, column=i, value=v)
-                cell.border = border
-                if i >= 10:
-                    cell.number_format = "#,##0"
-                if i in (1,):
-                    cell.alignment = Alignment(horizontal="center")
-            row_idx += 1
-
-        last_data_row = row_idx - 1
-
-        # --- Ligne TOTAL -----------------------------------------------------
-        ws.cell(row=row_idx, column=9, value="TOTAL").font = Font(bold=True)
-        numeric_cols = list(range(10, n_cols + 1))
-        for i in numeric_cols:
-            col_letter = get_column_letter(i)
-            cell = ws.cell(row=row_idx, column=i,
-                            value=f"=SUM({col_letter}{first_data_row}:{col_letter}{last_data_row})")
-            cell.font = Font(bold=True)
-            cell.number_format = "#,##0"
-            cell.border = border
-            cell.fill = PatternFill("solid", fgColor="EEF2F7")
-        total_row = row_idx
-        row_idx += 2
-
-        # --- Récapitulatif « Charges totales / mois » -----------------------
-        ws.cell(row=row_idx, column=9, value="CHARGES TOTALES / MOIS").font = Font(bold=True)
-        brut_col, patronale_col, vps_col, its_col = "M", "N", "P", "Q"
-        formula = (f"={brut_col}{total_row}+{patronale_col}{total_row}"
-                   f"+{vps_col}{total_row}+{its_col}{total_row}")
-        cell = ws.cell(row=row_idx, column=n_cols, value=formula)
-        cell.font = Font(bold=True)
-        cell.number_format = "#,##0"
-        ws.cell(row=row_idx + 1, column=9,
-                value="(= Total Salaire Brut + Cotisations CNSS patronale + VPS + ITS)").font = Font(italic=True, size=8)
-
-        for i in range(1, n_cols + 1):
-            length = 14
-            header_txt = simple_headers[i - 1] if i <= len(simple_headers) else ""
-            length = max(length, len(header_txt.replace("\n", " ")) + 2)
-            ws.column_dimensions[get_column_letter(i)].width = max(10, min(length, 22))
-        ws.row_dimensions[r1].height = 30
-        ws.row_dimensions[r2].height = 26
-
-        notice_row = row_idx + 3
-        ws.cell(row=notice_row, column=1, value=PAID_SOFTWARE_NOTICE).font = Font(italic=True, color="008751")
-
-        wb.save(path)
-        messagebox.showinfo("Export réussi", f"Bordereau des salaires généré :\n{path}")
-
     def export_bordereau_pdf(self):
-        """Génère le Bordereau des salaires en PDF (format paysage, A3 --
-        plus lisible qu'A4 vu le nombre de colonnes), avec les mêmes chiffres
-        que la version Excel."""
+        """Génère le « Bordereau des salaires » en PDF (format paysage, A3 --
+        plus lisible qu'A4 vu le nombre de colonnes) : une ligne par employé
+        (IFU/CNSS/dates, CNSS patronale et ouvrière, VPS, ITS, Net, Total
+        employeur), ligne TOTAL et récapitulatif des charges du mois."""
         if not self.last_results:
             self.calculate()
         if not self.last_results:
