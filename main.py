@@ -347,6 +347,22 @@ class EmployeesTab(ttk.Frame):
         super().__init__(parent)
         self.app = app
 
+        # --- Taux Risques Professionnels : accessible à TOUS les rôles (pas
+        # seulement l'Administrateur), car il dépend du secteur d'activité et
+        # doit pouvoir être ajusté sans mot de passe Administrateur.
+        risque_bar = ttk.Frame(self)
+        risque_bar.pack(side="top", fill="x", padx=6, pady=(6, 0))
+        ttk.Label(risque_bar, text="Taux CNSS Risques Professionnels (%) :",
+                  font=("Segoe UI", 9, "bold")).pack(side="left")
+        current_rate = self.app.config_data["params"].get("taux_cnss_risques_pro", 0.04) * 100
+        self.risque_pro_var = tk.StringVar(value=f"{current_rate:g}")
+        ttk.Entry(risque_bar, textvariable=self.risque_pro_var, width=6).pack(side="left", padx=(6, 4))
+        ttk.Label(risque_bar, text="%").pack(side="left")
+        ttk.Button(risque_bar, text="Enregistrer ce taux",
+                   command=self.save_risque_pro_rate).pack(side="left", padx=(10, 0))
+        ttk.Label(risque_bar, text="(selon l'activité de l'entreprise, généralement entre 1% et 4%)",
+                  foreground="#666").pack(side="left", padx=(10, 0))
+
         # --- Barre d'import en masse (Excel/CSV), utile quand il y a beaucoup
         # d'employés à saisir : on remplit un fichier plutôt que le formulaire.
         toolbar = ttk.Frame(self)
@@ -456,6 +472,26 @@ class EmployeesTab(ttk.Frame):
         self.refresh_tree()
 
     # ------------------------------------------------------------------
+    def save_risque_pro_rate(self):
+        text = self.risque_pro_var.get().strip().replace(",", ".").replace("%", "")
+        try:
+            pct = float(text)
+        except ValueError:
+            messagebox.showerror("Erreur", "Merci de saisir un nombre (ex : 4 pour 4%).")
+            return
+        if not (0 <= pct <= 100):
+            messagebox.showerror("Erreur", "Le taux doit être compris entre 0 et 100.")
+            return
+        self.app.config_data["params"]["taux_cnss_risques_pro"] = pct / 100
+        try:
+            storage.save(self.app.config_data)
+        except Exception as exc:
+            messagebox.showerror("Erreur", f"Impossible d'enregistrer : {exc}")
+            return
+        messagebox.showinfo("Enregistré",
+                             f"Taux Risques Professionnels mis à jour : {pct:g}%.\n"
+                             "Il sera appliqué à tous les prochains calculs de paie.")
+
     def get_employees(self):
         return self.app.config_data["employees"]
 
@@ -1880,12 +1916,16 @@ class ParamsTab(ttk.Frame):
         section("1. Cotisations CNSS")
         field("Cotisations Familiales — patronale (fixe)", "taux_cnss_allocations_familiales",
               params["taux_cnss_allocations_familiales"])
-        field("Risques Professionnels — patronale (variable, 1% à 4% selon l'activité)",
-              "taux_cnss_risques_pro", params["taux_cnss_risques_pro"])
         field("Assurance Vieillesse — part patronale (fixe)", "taux_cnss_vieillesse_patronal",
               params["taux_cnss_vieillesse_patronal"])
         field("Assurance Vieillesse — part salariale (fixe)", "taux_cnss_vieillesse_salarial",
               params["taux_cnss_vieillesse_salarial"])
+        ttk.Label(inner, text="Le taux « Risques Professionnels » (variable) se règle "
+                               "désormais directement dans l'onglet « Saisie des employés »,\n"
+                               "accessible aussi bien à l'Administrateur qu'à l'Utilisateur.",
+                  foreground="#666", justify="left").grid(
+            row=row, column=0, columnspan=2, sticky="w", padx=8, pady=(2, 4))
+        row += 1
 
         section("2. VPS — Versement Patronal sur Salaires")
         field("Taux VPS (variable — 4% standard, 2% enseignement privé)", "taux_vps", params["taux_vps"])
@@ -2000,7 +2040,6 @@ class ParamsTab(ttk.Frame):
             p = self.app.config_data["params"]
             v = self.vars
             p["taux_cnss_allocations_familiales"] = float(v["taux_cnss_allocations_familiales"].get())
-            p["taux_cnss_risques_pro"] = float(v["taux_cnss_risques_pro"].get())
             p["taux_cnss_vieillesse_patronal"] = float(v["taux_cnss_vieillesse_patronal"].get())
             p["taux_cnss_vieillesse_salarial"] = float(v["taux_cnss_vieillesse_salarial"].get())
             p["taux_vps"] = float(v["taux_vps"].get())
