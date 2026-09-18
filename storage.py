@@ -40,6 +40,7 @@ def _default_config() -> dict:
         # modifiables par l'administrateur dans l'onglet Paramètres.
         "bulletin_entete": {
             "nom_entreprise": "Mon Entreprise",
+            "ifu": "",
             "adresse": "",
             "telephone": "",
             "email": "",
@@ -90,6 +91,8 @@ def load() -> dict:
         cfg.setdefault(k, v)
     for k, v in DEFAULT_PARAMS.items():
         cfg["params"].setdefault(k, v)
+    for k, v in default["bulletin_entete"].items():
+        cfg["bulletin_entete"].setdefault(k, v)
     return cfg
 
 

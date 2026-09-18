@@ -41,7 +41,7 @@ from typing import Optional
 DEFAULT_PARAMS = {
     # 1. Cotisations CNSS
     "taux_cnss_allocations_familiales": 0.09,   # patronale, fixe
-    "taux_cnss_risques_pro": 0.02,              # patronale, PARAMÉTRABLE (1% à 4%)
+    "taux_cnss_risques_pro": 0.04,              # patronale, PARAMÉTRABLE (1% à 4%) -- 4% par défaut
     "taux_cnss_vieillesse_patronal": 0.064,     # patronale, fixe
     "taux_cnss_vieillesse_salarial": 0.036,     # salariale, fixe
 
@@ -75,6 +75,9 @@ class Employee:
     emploi: str = ""
     categorie: str = ""
     matricule_cnss: str = ""
+    date_naissance: str = ""          # format JJ/MM/AAAA (texte libre, non calculé)
+    date_embauche: str = ""           # format JJ/MM/AAAA (texte libre, non calculé)
+    contacts: str = ""                # téléphone(s) de l'employé
     periode: str = ""                 # période de paie, format "AAAA-MM" (ex: "2026-09")
     salaire_base: float = 0.0
     heures_sup: float = 0.0
@@ -189,6 +192,9 @@ def compute_payslip(emp: Employee, params: dict, mois: int = None) -> dict:
         "emploi": emp.emploi,
         "categorie": emp.categorie,
         "matricule_cnss": emp.matricule_cnss,
+        "date_naissance": emp.date_naissance,
+        "date_embauche": emp.date_embauche,
+        "contacts": emp.contacts,
         # Détail des éléments de gain
         "salaire_base": F,
         "heures_sup": G,
