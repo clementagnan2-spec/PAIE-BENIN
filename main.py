@@ -1485,11 +1485,19 @@ class PayrollTab(ttk.Frame):
         c.drawString(text_x, y, entete.get("nom_entreprise") or "Mon Entreprise")
         y -= 6 * mm
         c.setFont("Helvetica", 9)
-        coords = [v for v in (entete.get("adresse"), entete.get("telephone"), entete.get("email")) if v]
+        # Chaque information sur sa propre ligne (raison sociale déjà tracée
+        # ci-dessus) : IFU, puis adresse, puis téléphone/email s'ils existent.
+        # On évite de tout mettre sur une seule ligne séparée par « • », ce
+        # qui provoquait un retour à la ligne chevauchant le logo ou l'IFU.
         if entete.get("ifu"):
-            coords.append(f"IFU : {entete['ifu']}")
-        if coords:
-            c.drawString(text_x, y, "  •  ".join(coords))
+            c.drawString(text_x, y, f"IFU : {entete['ifu']}")
+            y -= 5 * mm
+        if entete.get("adresse"):
+            c.drawString(text_x, y, entete["adresse"])
+            y -= 5 * mm
+        contact = [v for v in (entete.get("telephone"), entete.get("email")) if v]
+        if contact:
+            c.drawString(text_x, y, "  •  ".join(contact))
             y -= 5 * mm
         if entete.get("note_entete"):
             c.setFont("Helvetica-Oblique", 8)
