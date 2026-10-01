@@ -224,7 +224,7 @@ class LoginScreen(ttk.Frame):
 
         ttk.Label(form, text="Mot de passe :").grid(row=1, column=0, sticky="e", padx=6, pady=6)
         self.pwd_var = tk.StringVar()
-        pwd_entry = ttk.Entry(form, textvariable=self.pwd_var, width=23)
+        pwd_entry = ttk.Entry(form, textvariable=self.pwd_var, width=23, show="•")
         pwd_entry.grid(row=1, column=1, sticky="w", padx=6, pady=6)
         pwd_entry.bind("<Return>", lambda e: self.try_login())
         pwd_entry.focus_set()
@@ -256,9 +256,8 @@ class LoginScreen(ttk.Frame):
             else:
                 messagebox.showerror("Connexion refusée",
                                       "Mot de passe administrateur incorrect.\n\n"
-                                      "Astuce : le mot de passe est affiché en clair dans le champ "
-                                      "ci-dessus, vérifiez qu'il correspond exactement (attention aux "
-                                      "claviers AZERTY pour les chiffres, qui nécessitent la touche Maj).")
+                                      "Attention aux claviers AZERTY pour les chiffres, "
+                                      "qui nécessitent la touche Maj.")
         else:
             if expiration.is_expired(cfg):
                 self.app.show_expired()
