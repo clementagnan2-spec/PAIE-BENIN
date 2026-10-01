@@ -118,10 +118,12 @@ class App(tk.Tk):
         self.container = ttk.Frame(self)
         self.container.pack(fill="both", expand=True)
 
-        if expiration.is_expired(self.config_data):
-            self.show_expired()
-        else:
-            self.show_login()
+        # On affiche TOUJOURS l'écran de connexion, même si le logiciel est
+        # expiré : seul le rôle Administrateur pourra alors se connecter
+        # (voir LoginScreen.try_login), pour pouvoir prolonger l'accès
+        # depuis l'onglet Sécurité. Le rôle Utilisateur reste bloqué par
+        # l'écran "Accès expiré" tant que l'Administrateur n'a pas prolongé.
+        self.show_login()
 
     def show_expired(self):
         self.role = None
@@ -184,6 +186,9 @@ class ExpiredScreen(ttk.Frame):
             font=("Segoe UI", 10), justify="center", foreground="#555").pack(pady=(6, 2))
         ttk.Label(center, text="consultanter280@gmail.com",
                   font=("Segoe UI", 11, "bold")).pack()
+
+        ttk.Button(center, text="← Retour à l'écran de connexion (Administrateur)",
+                   command=app.show_login).pack(pady=(20, 0))
 
 
 # ==========================================================================
@@ -255,6 +260,9 @@ class LoginScreen(ttk.Frame):
                                       "ci-dessus, vérifiez qu'il correspond exactement (attention aux "
                                       "claviers AZERTY pour les chiffres, qui nécessitent la touche Maj).")
         else:
+            if expiration.is_expired(cfg):
+                self.app.show_expired()
+                return
             expected = auth.get_effective_user_password(cfg)
             if pwd == expected:
                 self.app.role = "user"
