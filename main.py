@@ -347,9 +347,10 @@ class EmployeesTab(ttk.Frame):
         super().__init__(parent)
         self.app = app
 
-        # --- Taux Risques Professionnels : accessible à TOUS les rôles (pas
-        # seulement l'Administrateur), car il dépend du secteur d'activité et
-        # doit pouvoir être ajusté sans mot de passe Administrateur.
+        # --- Taux Risques Professionnels et VPS : accessibles à TOUS les
+        # rôles (pas seulement l'Administrateur), car ils dépendent du
+        # secteur d'activité et doivent pouvoir être ajustés sans mot de
+        # passe Administrateur, directement pendant la saisie.
         risque_bar = ttk.Frame(self)
         risque_bar.pack(side="top", fill="x", padx=6, pady=(6, 0))
         ttk.Label(risque_bar, text="Taux CNSS Risques Professionnels (%) :",
@@ -358,9 +359,17 @@ class EmployeesTab(ttk.Frame):
         self.risque_pro_var = tk.StringVar(value=f"{current_rate:g}")
         ttk.Entry(risque_bar, textvariable=self.risque_pro_var, width=6).pack(side="left", padx=(6, 4))
         ttk.Label(risque_bar, text="%").pack(side="left")
-        ttk.Button(risque_bar, text="Enregistrer ce taux",
-                   command=self.save_risque_pro_rate).pack(side="left", padx=(10, 0))
-        ttk.Label(risque_bar, text="(selon l'activité de l'entreprise, généralement entre 1% et 4%)",
+
+        ttk.Label(risque_bar, text="   Taux VPS (%) :",
+                  font=("Segoe UI", 9, "bold")).pack(side="left", padx=(16, 0))
+        current_vps = self.app.config_data["params"].get("taux_vps", 0.04) * 100
+        self.vps_var = tk.StringVar(value=f"{current_vps:g}")
+        ttk.Entry(risque_bar, textvariable=self.vps_var, width=6).pack(side="left", padx=(6, 4))
+        ttk.Label(risque_bar, text="%").pack(side="left")
+
+        ttk.Button(risque_bar, text="Enregistrer ces taux",
+                   command=self.save_rates).pack(side="left", padx=(10, 0))
+        ttk.Label(risque_bar, text="(Risques Pro : 1% à 4% selon l'activité — VPS : 4% standard, 2% enseignement privé)",
                   foreground="#666").pack(side="left", padx=(10, 0))
 
         # --- Barre d'import en masse (Excel/CSV), utile quand il y a beaucoup
@@ -372,16 +381,8 @@ class EmployeesTab(ttk.Frame):
                    command=self.import_from_file).pack(side="left", padx=(8, 4))
         ttk.Button(toolbar, text="Télécharger le modèle Excel",
                    command=self.download_template).pack(side="left", padx=4)
-
-        # --- Reconduction : recopie en un clic toutes les saisies d'un mois
-        # sur le mois suivant, pour ne pas ressaisir les mêmes employés
-        # chaque mois.
-        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=10)
-        ttk.Label(toolbar, text="Mois à reconduire :").pack(side="left")
-        self.reconduire_var = tk.StringVar(value=self._periode_to_input(current_period_key()))
-        ttk.Entry(toolbar, textvariable=self.reconduire_var, width=9).pack(side="left", padx=(4, 4))
-        ttk.Button(toolbar, text="Reconduire au mois suivant",
-                   command=self.reconduire_mois_suivant).pack(side="left", padx=4)
+        ttk.Button(toolbar, text="Reconduire les salaires au mois suivant",
+                   command=self.reconduire_mois_suivant).pack(side="left", padx=(16, 4))
 
         # IMPORTANT : on réserve d'abord la place du panneau de droite (largeur
         # fixe) AVANT de placer le tableau (qui a beaucoup de colonnes et
@@ -482,25 +483,79 @@ class EmployeesTab(ttk.Frame):
         self.refresh_tree()
 
     # ------------------------------------------------------------------
-    def save_risque_pro_rate(self):
-        text = self.risque_pro_var.get().strip().replace(",", ".").replace("%", "")
+    def save_rates(self):
+        risque_text = self.risque_pro_var.get().strip().replace(",", ".").replace("%", "")
+        vps_text = self.vps_var.get().strip().replace(",", ".").replace("%", "")
         try:
-            pct = float(text)
+            risque_pct = float(risque_text)
+            vps_pct = float(vps_text)
         except ValueError:
-            messagebox.showerror("Erreur", "Merci de saisir un nombre (ex : 4 pour 4%).")
+            messagebox.showerror("Erreur", "Merci de saisir des nombres (ex : 4 pour 4%).")
             return
-        if not (0 <= pct <= 100):
-            messagebox.showerror("Erreur", "Le taux doit être compris entre 0 et 100.")
+        if not (0 <= risque_pct <= 100) or not (0 <= vps_pct <= 100):
+            messagebox.showerror("Erreur", "Les taux doivent être compris entre 0 et 100.")
             return
-        self.app.config_data["params"]["taux_cnss_risques_pro"] = pct / 100
+        self.app.config_data["params"]["taux_cnss_risques_pro"] = risque_pct / 100
+        self.app.config_data["params"]["taux_vps"] = vps_pct / 100
         try:
             storage.save(self.app.config_data)
         except Exception as exc:
             messagebox.showerror("Erreur", f"Impossible d'enregistrer : {exc}")
             return
         messagebox.showinfo("Enregistré",
-                             f"Taux Risques Professionnels mis à jour : {pct:g}%.\n"
-                             "Il sera appliqué à tous les prochains calculs de paie.")
+                             f"Taux mis à jour : Risques Professionnels = {risque_pct:g}%, "
+                             f"VPS = {vps_pct:g}%.\nIls seront appliqués à tous les prochains calculs de paie.")
+
+    def reconduire_mois_suivant(self):
+        """Duplique tous les employés de la période la plus récente vers le
+        mois suivant (mêmes montants, nouvelle période), pour éviter de
+        ressaisir chaque mois les employés dont le salaire ne change pas.
+        Les employés déjà présents sur la période cible (même nom) sont
+        ignorés pour éviter les doublons si le bouton est cliqué deux fois."""
+        employees = self.get_employees()
+        periods = sorted({e.get("periode", "") for e in employees if e.get("periode")})
+        if not periods:
+            messagebox.showinfo("Info", "Aucun employé avec une période de paie définie.")
+            return
+        source_period = periods[-1]
+        year, month = map(int, source_period.split("-"))
+        if month == 12:
+            target_period = f"{year + 1:04d}-01"
+        else:
+            target_period = f"{year:04d}-{month + 1:02d}"
+
+        source_employees = [e for e in employees if e.get("periode") == source_period]
+        already_on_target = {e.get("nom_prenoms") for e in employees if e.get("periode") == target_period}
+        to_create = [e for e in source_employees if e.get("nom_prenoms") not in already_on_target]
+
+        if not to_create:
+            messagebox.showinfo(
+                "Info",
+                f"Tous les employés de {format_period(source_period)} sont déjà "
+                f"reconduits sur {format_period(target_period)}.")
+            return
+
+        if not messagebox.askyesno(
+                "Confirmer la reconduction",
+                f"Reconduire {len(to_create)} employé(s) de {format_period(source_period)} "
+                f"vers {format_period(target_period)} (mêmes montants) ?"):
+            return
+
+        for e in to_create:
+            new_emp = dict(e)
+            new_emp["numero"] = self.app.config_data["next_numero"]
+            new_emp["periode"] = target_period
+            new_emp["date_saisie"] = datetime.date.today().isoformat()
+            self.app.config_data["employees"].append(new_emp)
+            self.app.config_data["next_numero"] += 1
+
+        if not self._save_or_report():
+            return
+        self.refresh_tree()
+        messagebox.showinfo(
+            "Reconduit",
+            f"{len(to_create)} employé(s) reconduit(s) vers {format_period(target_period)}.\n"
+            "Vous pouvez ensuite modifier individuellement les montants qui ont changé.")
 
     def get_employees(self):
         return self.app.config_data["employees"]
@@ -654,103 +709,6 @@ class EmployeesTab(ttk.Frame):
                     var.set(str(val))
             else:
                 var.set(str(emp.get(key, "")))
-
-    # ------------------------------------------------------------------
-    # RECONDUCTION D'UN MOIS SUR LE SUIVANT
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _next_period_key(period_key):
-        """'2026-09' -> '2026-10' (et décembre bascule sur janvier suivant)."""
-        year, month = (int(x) for x in period_key.split("-"))
-        if month == 12:
-            year, month = year + 1, 1
-        else:
-            month += 1
-        return f"{year:04d}-{month:02d}"
-
-    def reconduire_mois_suivant(self):
-        """Recopie toutes les saisies du mois indiqué sur le mois suivant :
-        mêmes employés, mêmes salaires et indemnités, sans ressaisie. Les
-        employés déjà saisis sur le mois suivant sont ignorés (pas de
-        doublon), et les éléments variables (heures supplémentaires, avances,
-        retenues) peuvent être remis à zéro."""
-        source = normalize_period(self.reconduire_var.get())
-        cible = self._next_period_key(source)
-
-        employees = self.get_employees()
-        a_reconduire = [e for e in employees if e.get("periode", "") == source]
-        if not a_reconduire:
-            messagebox.showinfo(
-                "Aucune saisie",
-                f"Aucun employé n'est saisi pour {format_period(source)}.\n\n"
-                "Vérifiez le mois indiqué (format MM/AAAA) avant de reconduire.")
-            return
-
-        # Clé d'identification d'un employé, pour ne pas le recopier deux fois
-        # sur le mois cible : le matricule CNSS s'il existe, sinon le nom.
-        def cle(e):
-            mat = str(e.get("matricule_cnss", "")).strip().lower()
-            return mat or str(e.get("nom_prenoms", "")).strip().lower()
-
-        deja = {cle(e) for e in employees if e.get("periode", "") == cible}
-        nouveaux = [e for e in a_reconduire if cle(e) not in deja]
-        ignores = len(a_reconduire) - len(nouveaux)
-
-        if not nouveaux:
-            messagebox.showinfo(
-                "Déjà reconduit",
-                f"Tous les employés de {format_period(source)} sont déjà "
-                f"saisis sur {format_period(cible)}. Rien à faire.")
-            return
-
-        remise_a_zero = messagebox.askyesnocancel(
-            "Reconduire les salaires",
-            f"Reconduire {len(nouveaux)} employé(s) de {format_period(source)} "
-            f"vers {format_period(cible)} ?"
-            + (f"\n({ignores} déjà présent(s) sur {format_period(cible)} : ignoré(s).)"
-               if ignores else "")
-            + "\n\nOui  = remettre à zéro les éléments variables du mois "
-              "(heures supplémentaires, avances/acomptes, retenues sur prêts, "
-              "autres retenues) — recommandé.\n"
-              "Non  = tout recopier à l'identique.\n"
-              "Annuler = ne rien faire.")
-        if remise_a_zero is None:
-            return
-
-        variables = ("heures_sup", "avance_acompte", "retenue_pret", "autres_retenues")
-        aujourdhui = datetime.date.today().isoformat()
-        ajoutes = []
-        numero_depart = self.app.config_data["next_numero"]
-        for e in nouveaux:
-            copie = dict(e)
-            copie["periode"] = cible
-            copie["numero"] = self.app.config_data["next_numero"]
-            copie["date_saisie"] = aujourdhui
-            if remise_a_zero:
-                for k in variables:
-                    copie[k] = 0
-            employees.append(copie)
-            ajoutes.append(copie)
-            self.app.config_data["next_numero"] += 1
-
-        if not self._save_or_report():
-            # annulation en mémoire si l'enregistrement a échoué, pour ne pas
-            # désynchroniser l'affichage et le fichier de données
-            for copie in ajoutes:
-                employees.remove(copie)
-            self.app.config_data["next_numero"] = numero_depart
-            return
-
-        self.refresh_tree()
-        messagebox.showinfo(
-            "Reconduction effectuée",
-            f"{len(ajoutes)} employé(s) reconduit(s) de {format_period(source)} "
-            f"vers {format_period(cible)}."
-            + (f"\n{ignores} employé(s) déjà présent(s) sur {format_period(cible)} "
-               "n'ont pas été recopiés." if ignores else "")
-            + "\n\nVous pouvez maintenant ajuster les montants du nouveau mois "
-              "en sélectionnant chaque ligne dans la liste.")
-        self.reconduire_var.set(self._periode_to_input(cible))
 
     @staticmethod
     def _periode_to_input(period_key):
@@ -1239,10 +1197,9 @@ class PayrollTab(ttk.Frame):
         return ifu_entreprise, entreprise_nom, rows, totals, charges_totales_mois
 
     def export_bordereau_pdf(self):
-        """Génère le « Bordereau des salaires » en PDF (format paysage, A3 --
-        plus lisible qu'A4 vu le nombre de colonnes) : une ligne par employé
-        (IFU/CNSS/dates, CNSS patronale et ouvrière, VPS, ITS, Net, Total
-        employeur), ligne TOTAL et récapitulatif des charges du mois."""
+        """Génère le Bordereau des salaires en PDF (format paysage, A3 --
+        plus lisible qu'A4 vu le nombre de colonnes), avec les mêmes chiffres
+        que la version Excel."""
         if not self.last_results:
             self.calculate()
         if not self.last_results:
@@ -1485,19 +1442,11 @@ class PayrollTab(ttk.Frame):
         c.drawString(text_x, y, entete.get("nom_entreprise") or "Mon Entreprise")
         y -= 6 * mm
         c.setFont("Helvetica", 9)
-        # Chaque information sur sa propre ligne (raison sociale déjà tracée
-        # ci-dessus) : IFU, puis adresse, puis téléphone/email s'ils existent.
-        # On évite de tout mettre sur une seule ligne séparée par « • », ce
-        # qui provoquait un retour à la ligne chevauchant le logo ou l'IFU.
+        coords = [v for v in (entete.get("adresse"), entete.get("telephone"), entete.get("email")) if v]
         if entete.get("ifu"):
-            c.drawString(text_x, y, f"IFU : {entete['ifu']}")
-            y -= 5 * mm
-        if entete.get("adresse"):
-            c.drawString(text_x, y, entete["adresse"])
-            y -= 5 * mm
-        contact = [v for v in (entete.get("telephone"), entete.get("email")) if v]
-        if contact:
-            c.drawString(text_x, y, "  •  ".join(contact))
+            coords.append(f"IFU : {entete['ifu']}")
+        if coords:
+            c.drawString(text_x, y, "  •  ".join(coords))
             y -= 5 * mm
         if entete.get("note_entete"):
             c.setFont("Helvetica-Oblique", 8)
