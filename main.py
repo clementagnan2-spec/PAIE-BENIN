@@ -15,6 +15,7 @@ Lancer avec :  python main.py
 
 import datetime
 import os
+import time
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from dataclasses import replace
@@ -26,6 +27,9 @@ from payroll_engine import Employee, compute_payslip, find_base_for_target_net, 
 
 APP_TITLE = "Paie Bénin — Traitement des salaires mensuels"
 PAID_SOFTWARE_NOTICE = "Ce logiciel de paie est payant : consultanter280@gmail.com"
+
+# Délai d'inactivité de la souris avant déconnexion automatique de l'Administrateur
+ADMIN_IDLE_TIMEOUT_SECONDS = 4 * 60  # 4 minutes
 
 MOIS_FR = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet",
            "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
@@ -115,6 +119,12 @@ class App(tk.Tk):
             raise
         self.role = None  # "admin" ou "user"
 
+        # Déconnexion automatique de l'Administrateur après inactivité de la
+        # souris (ne s'applique PAS au rôle Utilisateur).
+        self._last_mouse_move = time.monotonic()
+        self._idle_job = None
+        self.bind_all("<Motion>", self._on_mouse_move, add="+")
+
         self.container = ttk.Frame(self)
         self.container.pack(fill="both", expand=True)
 
@@ -146,12 +156,56 @@ class App(tk.Tk):
 
     def show_login(self):
         self.role = None
+        self._stop_idle_watch()
         self.clear()
         LoginScreen(self.container, self)
 
     def show_main(self):
         self.clear()
         MainScreen(self.container, self)
+        if self.role == "admin":
+            self._start_idle_watch()
+        else:
+            self._stop_idle_watch()
+
+    # ------------------------------------------------------------------
+    # Déconnexion automatique de l'Administrateur (inactivité souris)
+    # ------------------------------------------------------------------
+    def _on_mouse_move(self, event=None):
+        self._last_mouse_move = time.monotonic()
+
+    def _start_idle_watch(self):
+        self._stop_idle_watch()
+        self._last_mouse_move = time.monotonic()
+        self._idle_job = self.after(1000, self._check_idle)
+
+    def _stop_idle_watch(self):
+        if self._idle_job is not None:
+            try:
+                self.after_cancel(self._idle_job)
+            except Exception:
+                pass
+            self._idle_job = None
+
+    def _check_idle(self):
+        self._idle_job = None
+        if self.role != "admin":
+            return  # sécurité : ne jamais s'appliquer à l'Utilisateur
+        if time.monotonic() - self._last_mouse_move >= ADMIN_IDLE_TIMEOUT_SECONDS:
+            # Fermer les éventuelles fenêtres secondaires encore ouvertes
+            for w in self.winfo_children():
+                if isinstance(w, tk.Toplevel):
+                    try:
+                        w.destroy()
+                    except Exception:
+                        pass
+            self.show_login()
+            messagebox.showinfo(
+                "Session Administrateur fermée",
+                "Vous avez été déconnecté automatiquement après "
+                f"{ADMIN_IDLE_TIMEOUT_SECONDS // 60} minutes d'inactivité de la souris.")
+            return
+        self._idle_job = self.after(1000, self._check_idle)
 
 
 # ==========================================================================
