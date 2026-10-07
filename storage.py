@@ -53,6 +53,8 @@ def _default_config() -> dict:
             "établi conformément à la législation du travail en vigueur "
             "au Bénin."
         ),
+        # Police / taille / décalage vertical (mm) du texte du pied de page.
+        "bulletin_pied_style": {"police": "Helvetica-Oblique", "taille": 7.5, "decalage_mm": 0},
         # Mot de passe Administrateur : FIXE, intégré au code (voir
         # auth.ADMIN_PASSWORD) -- plus stocké ici du tout.
         # Prolongation de la date d'expiration (voir expiration.py). None =

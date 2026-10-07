@@ -1586,9 +1586,18 @@ class PayrollTab(ttk.Frame):
         c.drawRightString(x_right, bottom + 8 * mm, "Signature de l'employé")
 
         if pied:
-            c.setFont("Helvetica-Oblique", 7.5)
-            text_obj = c.beginText(x_left, bottom)
-            text_obj.setLeading(9)
+            style = self.app.config_data.get("bulletin_pied_style", {}) or {}
+            police = style.get("police", "Helvetica-Oblique")
+            taille = float(style.get("taille", 7.5))
+            decalage = float(style.get("decalage_mm", 0))  # > 0 : plus haut, < 0 : plus bas
+            try:
+                c.setFont(police, taille)
+            except Exception:
+                police = "Helvetica-Oblique"
+                c.setFont(police, taille)
+            text_obj = c.beginText(x_left, bottom + decalage * mm)
+            text_obj.setFont(police, taille)
+            text_obj.setLeading(taille * 1.2)
             for line in pied.split("\n"):
                 text_obj.textLine(line)
             c.drawText(text_obj)
@@ -2077,6 +2086,45 @@ class ParamsTab(ttk.Frame):
         self.footer_text.grid(row=row, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6))
         row += 1
 
+        # --- Police et position du texte du pied de page -----------------
+        style = self.app.config_data.get("bulletin_pied_style", {}) or {}
+        self.pied_police_var = tk.StringVar(value=style.get("police", "Helvetica-Oblique"))
+        self.pied_taille_var = tk.DoubleVar(value=float(style.get("taille", 7.5)))
+        self.pied_decalage_var = tk.DoubleVar(value=float(style.get("decalage_mm", 0)))
+
+        style_frame = ttk.LabelFrame(inner, text="Police et position du pied de page")
+        style_frame.grid(row=row, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6))
+        row += 1
+
+        ttk.Label(style_frame, text="Police :").grid(row=0, column=0, sticky="w", padx=6, pady=3)
+        ttk.Combobox(style_frame, textvariable=self.pied_police_var, width=22, state="readonly",
+                     values=list(self.PIED_POLICES.keys())).grid(row=0, column=1, columnspan=3,
+                                                                  sticky="w", padx=6, pady=3)
+
+        ttk.Label(style_frame, text="Taille :").grid(row=1, column=0, sticky="w", padx=6, pady=3)
+        ttk.Button(style_frame, text="A−", width=4,
+                   command=lambda: self._pied_step(self.pied_taille_var, -0.5, 5, 14)
+                   ).grid(row=1, column=1, padx=2)
+        ttk.Label(style_frame, textvariable=self.pied_taille_var, width=6, anchor="center"
+                  ).grid(row=1, column=2)
+        ttk.Button(style_frame, text="A+", width=4,
+                   command=lambda: self._pied_step(self.pied_taille_var, 0.5, 5, 14)
+                   ).grid(row=1, column=3, padx=2)
+
+        ttk.Label(style_frame, text="Position :").grid(row=2, column=0, sticky="w", padx=6, pady=3)
+        ttk.Button(style_frame, text="▼ Plus bas", width=10,
+                   command=lambda: self._pied_step(self.pied_decalage_var, -1, -20, 40)
+                   ).grid(row=2, column=1, padx=2)
+        ttk.Label(style_frame, textvariable=self.pied_decalage_var, width=6, anchor="center"
+                  ).grid(row=2, column=2)
+        ttk.Button(style_frame, text="▲ Plus haut", width=10,
+                   command=lambda: self._pied_step(self.pied_decalage_var, 1, -20, 40)
+                   ).grid(row=2, column=3, padx=2)
+        ttk.Label(style_frame, text="(décalage en mm, 0 = position d'origine)",
+                  foreground="#666").grid(row=3, column=1, columnspan=3, sticky="w", padx=6)
+        ttk.Button(style_frame, text="Réinitialiser", command=self._pied_reset
+                   ).grid(row=4, column=1, columnspan=2, pady=(4, 6), sticky="w", padx=2)
+
         # --- Logo de l'entreprise ------------------------------------------
         ttk.Label(inner, text="Logo de l'entreprise (en-tête du bulletin PDF)").grid(
             row=row, column=0, columnspan=2, sticky="w", padx=8, pady=(10, 2))
@@ -2105,6 +2153,27 @@ class ParamsTab(ttk.Frame):
                    command=self.open_data_folder).grid(row=row, column=0, pady=16, padx=8, sticky="w")
         ttk.Button(inner, text="Enregistrer les paramètres",
                    command=self.save_params).grid(row=row, column=1, pady=16, padx=8, sticky="w")
+
+    # Polices PDF intégrées (libellé -> nom reportlab)
+    PIED_POLICES = {
+        "Helvetica": "Helvetica",
+        "Helvetica-Bold": "Helvetica-Bold",
+        "Helvetica-Oblique": "Helvetica-Oblique",
+        "Times-Roman": "Times-Roman",
+        "Times-Bold": "Times-Bold",
+        "Times-Italic": "Times-Italic",
+        "Courier": "Courier",
+        "Courier-Bold": "Courier-Bold",
+    }
+
+    def _pied_step(self, var, step, vmin, vmax):
+        v = round(float(var.get()) + step, 1)
+        var.set(max(vmin, min(vmax, v)))
+
+    def _pied_reset(self):
+        self.pied_police_var.set("Helvetica-Oblique")
+        self.pied_taille_var.set(7.5)
+        self.pied_decalage_var.set(0)
 
     def choose_logo(self):
         path = filedialog.askopenfilename(
@@ -2165,6 +2234,11 @@ class ParamsTab(ttk.Frame):
             "logo_filename": getattr(self, "_logo_filename", ""),
         }
         self.app.config_data["bulletin_pied_de_page"] = self.footer_text.get("1.0", "end").strip()
+        self.app.config_data["bulletin_pied_style"] = {
+            "police": self.pied_police_var.get(),
+            "taille": float(self.pied_taille_var.get()),
+            "decalage_mm": float(self.pied_decalage_var.get()),
+        }
         self.app.config_data["entreprise"] = self.text_vars["nom_entreprise"].get().strip() or "Mon Entreprise"
 
         storage.save(self.app.config_data)
