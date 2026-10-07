@@ -1482,7 +1482,10 @@ class PayrollTab(ttk.Frame):
         # --- Bloc employé -----------------------------------------------
         c.setFont("Helvetica", 10)
         c.drawString(x_left, y, f"N° employé : {r['numero']}")
-        c.drawString(width / 2, y, f"Matricule CNSS : {r.get('matricule_cnss') or '-'}")
+        y -= 6 * mm
+        # CNSS de l'employé à gauche, CNSS de l'employeur à droite
+        c.drawString(x_left, y, f"CNSS employé : {r.get('matricule_cnss') or '-'}")
+        c.drawString(width / 2, y, f"CNSS employeur : {entete.get('cnss_employeur') or '-'}")
         y -= 6 * mm
         c.setFont("Helvetica-Bold", 11)
         c.drawString(x_left, y, f"{r['nom_prenoms']}")
@@ -2063,6 +2066,7 @@ class ParamsTab(ttk.Frame):
         text_field("Adresse", "adresse", entete.get("adresse", ""))
         text_field("Téléphone", "telephone", entete.get("telephone", ""))
         text_field("Email", "email", entete.get("email", ""))
+        text_field("N° CNSS employeur", "cnss_employeur", entete.get("cnss_employeur", ""))
         text_field("Note supplémentaire en en-tête (optionnel)", "note_entete", entete.get("note_entete", ""))
 
         ttk.Label(inner, text="Texte du pied de page (mentions légales, signature...)").grid(
@@ -2155,6 +2159,7 @@ class ParamsTab(ttk.Frame):
             "adresse": self.text_vars["adresse"].get().strip(),
             "telephone": self.text_vars["telephone"].get().strip(),
             "email": self.text_vars["email"].get().strip(),
+            "cnss_employeur": self.text_vars["cnss_employeur"].get().strip(),
             "note_entete": self.text_vars["note_entete"].get().strip(),
             "logo_base64": getattr(self, "_logo_base64", None),
             "logo_filename": getattr(self, "_logo_filename", ""),

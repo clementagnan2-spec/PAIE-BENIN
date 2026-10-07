@@ -44,6 +44,7 @@ def _default_config() -> dict:
             "adresse": "Cotonou, Bénin.",
             "telephone": "",
             "email": "",
+            "cnss_employeur": "",
             "note_entete": "",
         },
         "bulletin_pied_de_page": (
