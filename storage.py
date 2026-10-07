@@ -35,13 +35,13 @@ def get_data_path() -> str:
 
 def _default_config() -> dict:
     return {
-        "entreprise": "EGO BENIN SARL",
+        "entreprise": "EGO BENIN",
         # En-tête / pied de page utilisés sur les bulletins de paie PDF,
         # modifiables par l'administrateur dans l'onglet Paramètres.
         "bulletin_entete": {
-            "nom_entreprise": "EGO BENIN SARL",
+            "nom_entreprise": "EGO BENIN",
             "ifu": "3202632850060",
-            "adresse": "BP 04 Cotonou",
+            "adresse": "Cotonou, Bénin.",
             "telephone": "",
             "email": "",
             "note_entete": "",
